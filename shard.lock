@@ -1,0 +1,18 @@
+version: 1.0
+shards:
+  db:
+    github: crystal-lang/crystal-db
+    commit: ed686ad3015f48f8b22cf4fbec80e8c8088ef44b
+
+  discordcr:
+    github: discordcr/discordcr
+    commit: 619e08d31fd10918f2554f7623e2066ac308c439
+
+  dotenv:
+    github: gdotdesign/cr-dotenv
+    version: 0.7.0
+
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
+    version: 0.16.0
+

@@ -1,0 +1,25 @@
+name: Paucal
+version: 0.1.0
+
+authors:
+  - Cassidy Dingenskirchen <admin@15318.de>
+
+targets:
+  Paucal:
+    main: src/Paucal.cr
+
+dependencies:
+  discordcr:
+    github: discordcr/discordcr
+    branch: master
+  db:
+    github: crystal-lang/crystal-db
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
+  dotenv:
+    github: gdotdesign/cr-dotenv
+
+
+crystal: 0.34.0
+
+license: MIT
