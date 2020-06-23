@@ -173,6 +173,14 @@ module Parent
       end
     end
 
+    client.on_presence_update do |payload|
+      next unless payload.user.username || payload.user.discriminator
+      members = Members.to_a.select { |_, m| m.system_discord_id == payload.user.id }
+      members.each do |member_id, _|
+        Bots[member_id].send({Models::Command::UpdateMemberPresence, payload.user.id})
+      end
+    end
+
     client.run
   end
 
