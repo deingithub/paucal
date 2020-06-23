@@ -1,45 +1,66 @@
-module Member
-  # This is the closure backing a single Member bot. It awaits a new order from
-  # the Parent bot, executes it, then yields until it gets a new one.
-  def self.run(tube : Channel(Models::MemberRequest), system_discord_id : Discord::Snowflake, client : Discord::Client)
-    loop do
-      begin
-        command, data = tube.receive
-        case command
-        when Models::Command::Initialize
-          spawn client.run
-        when Models::Command::Post
-          data = data.as({Discord::Snowflake, Discord::Snowflake | String}) # this hits a bug with type coercion. really annoying.
-          m = client.create_message(data[0], data[1].as(String))
-          LastSystemMessageIDs[system_discord_id] = m.id
-        when Models::Command::Edit
-          data = data.as({Discord::Snowflake, Discord::Snowflake, String})
-          client.edit_message(data[0], data[1], data[2])
-        when Models::Command::UpdateMemberPresence
-          data = data.as(Discord::Snowflake)
-          user = client.get_user(data)
-          client.status_update("online", Discord::GamePlaying.new("#{user.username}##{user.discriminator}", :listening))
-        when Models::Command::UpdateUsername
-          data = data.as(String)
-          client.modify_current_user(username: data)
-        when Models::Command::UpdateAvatar
-          data = data.as(String)
-          image_data = HTTP::Client.get(data)
-          data_str = "data:"
-          data_str += (image_data.content_type || raise "no content type").downcase
-          data_str += ";base64,"
-          data_str += Base64.strict_encode(image_data.body)
-          client.modify_current_user(avatar: data_str)
-        when Models::Command::UpdateNick
-          data = data.as({Discord::Snowflake, Discord::Snowflake | String}) # this hits a bug with type coercion. really annoying.
-          client.modify_current_user_nick(data[0].to_u64, data[1].as(String))
-        when Models::Command::Delete
-          data = data.as({Discord::Snowflake, Discord::Snowflake | String}) # this hits a bug with type coercion. really annoying.
-          client.delete_message(data[0], data[1].as(Discord::Snowflake))
-        end
-      rescue ex
-        Log.error(exception: ex) { "Exception: #{ex}" }
-      end
+class MemberBot
+  def initialize(@db_data : Models::Member, @client : Discord::Client)
+    @bot_id = Discord::Snowflake.new(0)
+    @log = ::Log.for("member.#{@db_data.pk_member_id}")
+  end
+
+  property bot_id, db_data, client
+
+  def start
+    @client.on_ready do |payload|
+      @bot_id = payload.user.id
+      update_member_presence
+      @log.info { "Member bot #{@bot_id} started" }
     end
+
+    spawn @client.run
+  end
+
+  def stop
+    @client.stop
+    @log.info { "Member bot #{@bot_id} shutting down" }
+  end
+
+  def post(channel_id : Discord::Snowflake, text : String)
+    message = @client.create_message(channel_id, text)
+    LastSystemMessageIDs[@db_data.system_discord_id] = message.id
+  end
+
+  def edit(message : Discord::Message, text : String)
+    @client.edit_message(message.channel_id, message.id, text)
+  end
+
+  def delete(message : Discord::Message)
+    @client.delete_message(message.channel_id, message.id)
+  end
+
+  def update_member_presence
+    user = @client.get_user(@db_data.system_discord_id)
+    @client.status_update(
+      "online",
+      Discord::GamePlaying.new("#{user.username}##{user.discriminator}", :listening)
+    )
+  end
+
+  def update_avatar
+    image_data = HTTP::Client.get(@db_data.data.avatar_url || raise "no avatar")
+    data_uri = "data:"
+    data_uri += (image_data.content_type || raise "no content type").downcase
+    data_uri += ";base64,"
+    data_uri += Base64.strict_encode(image_data.body)
+    @client.modify_current_user(avatar: data_uri)
+  end
+
+  def update_username
+    @client.modify_current_user(username: @db_data.data.name)
+  end
+
+  def sync_db_to_discord
+    update_username
+    update_avatar
+  end
+
+  def update_nick(guild_id : Discord::Snowflake, nick : String)
+    @client.modify_current_user_nick(guild_id, nick)
   end
 end

@@ -31,6 +31,8 @@ module Models
     UpdateNick
     # Delete own message MessageID in channel ChannelID. Expects {MessageID : Discord::Snowflake, ChannelID : Discord::Snowflake}.
     Delete
+    # Shut down the member bot. Expects Nil.
+    Shutdown
   end
 
   # Helper class to safely convert DB strings to Crystal strings without really
@@ -72,6 +74,10 @@ module Models
       token:             {type: String, converter: DBString},
       pk_data:           {type: String, converter: DBString},
     })
+
+    def data
+      PKMemberData.from_json(@pk_data)
+    end
   end
 
   class PKMemberData
@@ -89,5 +95,9 @@ module Models
       prefix: String?,
       suffix: String?,
     })
+
+    def to_s(io : IO)
+      io << "#{@prefix || ""}text#{@suffix || ""}"
+    end
   end
 end
