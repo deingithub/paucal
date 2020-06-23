@@ -24,7 +24,12 @@ module Member
           client.modify_current_user(username: data)
         when Models::Command::UpdateAvatar
           data = data.as(String)
-          client.modify_current_user(avatar: data)
+          image_data = HTTP::Client.get(data)
+          data_str = "data:"
+          data_str += (image_data.content_type || raise "no content type").downcase
+          data_str += ";base64,"
+          data_str += Base64.strict_encode(image_data.body)
+          client.modify_current_user(avatar: data_str)
         when Models::Command::UpdateNick
           data = data.as({Discord::Snowflake, Discord::Snowflake | String}) # this hits a bug with type coercion. really annoying.
           client.modify_current_user_nick(data[0].to_u64, data[1].as(String))
