@@ -52,7 +52,7 @@ class MemberBot
   end
 
   def update_username
-    @client.modify_current_user(username: @db_data.data.name)
+    @client.modify_current_user(username: "paucal.#{@db_data.pk_member_id}")
   end
 
   def sync_db_to_discord
