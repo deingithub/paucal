@@ -12,6 +12,7 @@ class ParentBot
         end
       {% end %}
       proxy(msg)
+      pings(msg)
     end
 
     client.on_presence_update do |payload|
@@ -48,6 +49,24 @@ class ParentBot
         member.post(msg.channel_id, content)
         return
       end
+    end
+  end
+
+  def pings(msg)
+    accumulated_pings = [] of String
+    msg.content.scan(/<@!?([0-9]+)>/).each do |match|
+      mention = Discord::Snowflake.new(match[1])
+      Members.each do |member|
+        if member.bot_id == mention
+          accumulated_pings << "<@#{member.db_data.system_discord_id}>"
+        end
+      end
+    end
+    unless accumulated_pings.empty?
+      @client.create_message(
+        msg.channel_id,
+        "Don't mind me #{msg.author.username}##{msg.author.discriminator}, just pinging the relevant accounts: #{accumulated_pings.join(", ")}"
+      )
     end
   end
 
