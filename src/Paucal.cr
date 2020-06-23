@@ -14,7 +14,7 @@ Database.exec("pragma foreign_keys = on")
 Members = {} of String => Models::Member
 Bots    = {} of String => Channel(Models::MemberRequest)
 BotIDs  = {} of String => Discord::Snowflake
-Systems = Database.query_all("select * from systems", as: Model::System)
+Systems = Database.query_all("select * from systems", as: Models::System)
 
 require "./Member"
 require "./Models"

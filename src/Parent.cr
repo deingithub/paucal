@@ -140,6 +140,22 @@ module Parent
         name = args.join(" ")
         member_id = BotIDs.to_a.select { |key, val| val == mention }[0][0]
         Bots[member_id].send({Models::Command::UpdateNick, {msg.guild_id.not_nil!, name}})
+      elsif mess.starts_with?(";;whoami")
+        system = Systems.select { |s| s.discord_id == msg.author.id }[0]? || next
+        members = Members.to_a.select { |id, m| m.system_discord_id == msg.author.id }
+        members_str = members.map { |id, m|
+          "- `#{id}` <@#{BotIDs[id]}> #{Models::PKMemberData.from_json(m.pk_data).name}"
+        }.join("\n")
+        if members.empty?
+          members_str = "- None at all."
+        end
+        client.create_message(
+          msg.channel_id,
+          <<-YOU
+          You are system `#{system.pk_system_id}`. #{members.size} Members are registered with Paucal, namely:
+          #{members_str}
+          YOU
+        )
       end
       # now, go through all members and see if we should proxy this message
       # this variable is for early bailout and to prevent accidential doubleposts
