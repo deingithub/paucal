@@ -11,10 +11,7 @@ Database = DB.open("sqlite3://#{ENV["DATABASE_PATH"]}")
 Database.exec("pragma foreign_keys = on")
 
 Members              = [] of MemberBot
-Bots                 = {} of String => Channel(Models::MemberRequest)
-BotIDs               = {} of String => Discord::Snowflake
 LastSystemMessageIDs = {} of Discord::Snowflake => Discord::Snowflake
-Systems              = Database.query_all("select * from systems", as: Models::System)
 
 require "./Member"
 require "./Models"
