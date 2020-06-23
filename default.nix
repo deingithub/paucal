@@ -14,4 +14,7 @@ crystal.buildCrystalPackage rec {
 
   shardsFile = ./shards.nix;
 
+  crystalBinaries.Paucal.src = "src/Paucal.cr";
+  crystalBinaries.Paucal.options = [];
+
 }
