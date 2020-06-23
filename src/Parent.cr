@@ -5,7 +5,7 @@ class ParentBot
     @log = ::Log.for("parent")
     @client.on_message_create do |msg|
       next if msg.author.bot
-      {% for command in %w(help whoami sync register unregister edit ed delete del) %}
+      {% for command in %w(help whoami sync register unregister edit ed delete nick del) %}
         if msg.content.starts_with?(";;#{{{command}}}")
           {{command.id}}(msg)
           next
@@ -62,6 +62,7 @@ class ParentBot
         end
       end
     end
+    accumulated_pings.reject!(msg.author.mention)
     unless accumulated_pings.empty?
       @client.create_message(
         msg.channel_id,
@@ -255,7 +256,7 @@ class ParentBot
     get_members(get_system(msg.author.id)).each do |member|
       bot = get_bot(member)
       if bot.bot_id == mention
-        bot.nick(name)
+        bot.update_nick(msg.guild_id || raise("not in a guild"), name)
       end
     end
   end

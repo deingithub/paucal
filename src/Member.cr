@@ -61,6 +61,6 @@ class MemberBot
   end
 
   def update_nick(guild_id : Discord::Snowflake, nick : String)
-    @client.modify_current_user_nick(guild_id, nick)
+    @client.modify_current_user_nick(guild_id.to_u64, nick)
   end
 end
