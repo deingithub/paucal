@@ -3,7 +3,12 @@ module Models
   alias MemberRequest = {Command, Data}
 
   # All the data that can be attached to an MemberRequest
-  alias Data = Nil | String | {Discord::Snowflake, String} | {Discord::Snowflake, Discord::Snowflake, String} | Discord::Snowflake
+  alias Data = Nil |
+               String |
+               {Discord::Snowflake, String} |
+               {Discord::Snowflake, Discord::Snowflake, String} |
+               Discord::Snowflake |
+               {Discord::Snowflake, Discord::Snowflake}
 
   # The different kinds of request to Member bots
   # Crystal sadly seems to lack tagged unions, the comments document what types
@@ -24,6 +29,8 @@ module Models
     UpdateAvatar
     # Update nick in GuildID to Val. Expects {GuildID : Discord::Snowflake, Val : String}
     UpdateNick
+    # Delete own message MessageID in channel ChannelID. Expects {MessageID : Discord::Snowflake, ChannelID : Discord::Snowflake}.
+    Delete
   end
 
   # Helper class to safely convert DB strings to Crystal strings without really

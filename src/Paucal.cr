@@ -11,10 +11,11 @@ Log.setup_from_env
 Database = DB.open("sqlite3://#{ENV["DATABASE_PATH"]}")
 Database.exec("pragma foreign_keys = on")
 
-Members = {} of String => Models::Member
-Bots    = {} of String => Channel(Models::MemberRequest)
-BotIDs  = {} of String => Discord::Snowflake
-Systems = Database.query_all("select * from systems", as: Models::System)
+Members              = {} of String => Models::Member
+Bots                 = {} of String => Channel(Models::MemberRequest)
+BotIDs               = {} of String => Discord::Snowflake
+LastSystemMessageIDs = {} of Discord::Snowflake => Discord::Snowflake
+Systems              = Database.query_all("select * from systems", as: Models::System)
 
 require "./Member"
 require "./Models"
@@ -32,7 +33,7 @@ Database.query_all("select * from members where deleted = false", as: Models::Me
   Members[member.pk_member_id] = member
   Bots[member.pk_member_id] = channel
 
-  spawn Member.run(channel, client)
+  spawn Member.run(channel, member.system_discord_id, client)
 end
 
 Log.info { "Have #{Bots.size} member bots, booting them." }

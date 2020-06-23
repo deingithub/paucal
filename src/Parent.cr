@@ -16,17 +16,17 @@ module Parent
         `;;sync` Synchronize the data of Paucal-registered members with the PluralKit API.
         `;;register <pk member id>` Register `<pk member id>` with Paucal to make them proxyable with the bot.
         ~~`;;unregister <pk member id>` Irreversibly unregister `<pk member id>` from Paucal.~~
-        ~~`;;whoami` Show which members are already registered with Paucal.~~
+        `;;whoami` Show which members are already registered with Paucal.
 
         *Member Commands*
         ~~`;;role <@member> <rolename>` Toggle the presence of `<rolename>` on the mentioned member.~~
         `;;nick <@member> <nick>` Update the mentioned member's nick on the server to `<nick>`.
 
         *Message Commands: These only work on messages that have been proxied for your account. To obtain message IDs, enable developer mode and right-click/long tap the relevant message.*
-        ~~`;;edit <message id> <text>` Update `<message id>` to contain `<text>`.~~
-        ~~`;;delete <message id>` Delete `<message id>`.~~
-        ~~`;;ed <text>` Update the last-proxied message to contain `<text>`.~~
-        ~~`;;del` Delete the last-proxied message.~~
+        `;;edit <message id> <text>` Update `<message id>` to contain `<text>`.
+        `;;delete <message id>` Delete `<message id>`.
+        `;;ed <text>` Update the last-proxied message to contain `<text>`.
+        `;;del` Delete the last-proxied message.
         HELP
         )
       elsif mess.starts_with?(";;sync")
@@ -123,7 +123,8 @@ module Parent
         Members[new_member.pk_member_id] = new_member
         Bots[new_member.pk_member_id] = new_channel
 
-        spawn Member.run(new_channel, new_client)
+        # boot the new bot and tell it to adopt all the settings things
+        spawn Member.run(new_channel, new_member.system_discord_id, new_client)
         new_channel.send({Models::Command::Initialize, nil})
         new_channel.send({Models::Command::UpdateUsername, new_member_data.name})
         new_channel.send({Models::Command::UpdateAvatar, new_member_data.avatar_url})
@@ -132,7 +133,49 @@ module Parent
         log(client, "Added member #{pk_member_id} to #{system.discord_id}")
         client.create_message(msg.channel_id, "Successfully added member `#{pk_member_id}` (#{new_member_data.name}).")
       elsif mess.starts_with?(";;edit")
-      elsif mess.starts_with?(";;remove")
+        args = mess.lchop(";;edit").strip.split(" ")
+        # get the wanted message from the current channel (both of these can throw on bad args)
+        id = Discord::Snowflake.new(args.shift)
+        the_message = client.get_channel_message(msg.channel_id, id)
+
+        # only work on messages from our system account's members
+        members = Members.to_a.select { |id, m| m.system_discord_id == msg.author.id }
+        members.each do |id, m|
+          next unless BotIDs[id] == the_message.author.id
+          Bots[id].send({Models::Command::Edit, {the_message.channel_id, the_message.id, args.join(" ")}})
+        end
+        client.delete_message(msg.channel_id, msg.id)
+      elsif mess.starts_with?(";;ed")
+        text = mess.lchop(";;ed").strip
+        the_message = client.get_channel_message(msg.channel_id, LastSystemMessageIDs[msg.author.id])
+        members = Members.to_a.select { |id, m| m.system_discord_id == msg.author.id }
+        members.each do |id, m|
+          next unless BotIDs[id] == the_message.author.id
+          Bots[id].send({Models::Command::Edit, {the_message.channel_id, the_message.id, text}})
+        end
+        client.delete_message(msg.channel_id, msg.id)
+      elsif mess.starts_with?(";;delete")
+        args = mess.lchop(";;delete").strip.split(" ")
+        # get the wanted message from the current channel (both of these can throw on bad args)
+        id = Discord::Snowflake.new(args.shift)
+        the_message = client.get_channel_message(msg.channel_id, id)
+
+        # only work on messages from our system account's members
+        members = Members.to_a.select { |id, m| m.system_discord_id == msg.author.id }
+        members.each do |id, m|
+          next unless BotIDs[id] == the_message.author.id
+          Bots[id].send({Models::Command::Delete, {the_message.channel_id, the_message.id}})
+        end
+        client.delete_message(msg.channel_id, msg.id)
+      elsif mess.starts_with?(";;del")
+        the_message = client.get_channel_message(msg.channel_id, LastSystemMessageIDs[msg.author.id])
+        members = Members.to_a.select { |id, m| m.system_discord_id == msg.author.id }
+        members.each do |id, m|
+          next unless BotIDs[id] == the_message.author.id
+          Bots[id].send({Models::Command::Delete, {the_message.channel_id, the_message.id}})
+        end
+        LastSystemMessageIDs.delete(msg.author.id)
+        client.delete_message(msg.channel_id, msg.id)
       elsif mess.starts_with?(";;nick")
         args = mess.lchop(";;nick").strip.split(" ")
         mention = args.shift
