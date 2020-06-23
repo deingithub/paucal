@@ -13,8 +13,8 @@ crystal.buildCrystalPackage rec {
   src = ./.;
 
   shardsFile = ./shards.nix;
+  format = "crystal";
+  doInstallCheck = false;
 
   crystalBinaries.Paucal.src = "src/Paucal.cr";
-  crystalBinaries.Paucal.options = [];
-
 }
