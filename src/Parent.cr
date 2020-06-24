@@ -165,6 +165,7 @@ class ParentBot
       )
       auto_sync_client.on_ready do |payload|
         new_bot.sync_db_to_discord
+        new_bot.update_nick((msg.guild_id || raise "not in a guild").to_u64, new_member_data.name)
       end
 
       Members << new_bot
