@@ -49,9 +49,6 @@ class ParentBot
         end
         @client.delete_message(msg.channel_id, msg.id)
         @recently_proxied << msg
-        @client.create_message(Discord::Snowflake.new(ENV["DELETE_LOGS_CHANNEL"]), "", embed: Discord::Embed.new(
-          description: "oh no! someone deleted msg id #{msg.id}"
-        ))
         member.post(msg.channel_id, content)
         return
       end
