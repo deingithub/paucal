@@ -3,7 +3,9 @@ require "log"
 class ParentBot
   def initialize(@client : Discord::Client)
     @log = ::Log.for("parent")
+    @recently_proxied = LimitedQueue(Discord::Message).new(20)
     @client.on_message_create do |msg|
+      delete_delete_log(msg)
       next if msg.author.bot
       {% for command in %w(help whoami sync register unregister edit ed delete nick del) %}
         if msg.content.starts_with?(";;#{{{command}}}")
@@ -46,6 +48,10 @@ class ParentBot
           content = content.lchop(pt.prefix || "").rchop(pt.suffix || "")
         end
         @client.delete_message(msg.channel_id, msg.id)
+        @recently_proxied << msg
+        @client.create_message(Discord::Snowflake.new(ENV["DELETE_LOGS_CHANNEL"]), "", embed: Discord::Embed.new(
+          description: "oh no! someone deleted msg id #{msg.id}"
+        ))
         member.post(msg.channel_id, content)
         return
       end
@@ -69,6 +75,15 @@ class ParentBot
         "Don't mind me #{msg.author.username}##{msg.author.discriminator}, just pinging the relevant accounts: #{accumulated_pings.join(", ")}"
       )
     end
+  end
+
+  def delete_delete_log(msg)
+    return unless msg.channel_id == Discord::Snowflake.new(ENV["DELETE_LOGS_CHANNEL"])
+    return unless msg.author.id == Discord::Snowflake.new(ENV["DELETE_LOGS_USER"])
+    embed = msg.embeds[0]? || return
+    desc = embed.description || return
+    return unless @recently_proxied.any? { |oldmsg| desc.includes?(oldmsg.id.to_s) }
+    @client.delete_message(msg.channel_id, msg.id)
   end
 
   def help(msg)
@@ -165,7 +180,10 @@ class ParentBot
       )
       auto_sync_client.on_ready do |payload|
         new_bot.sync_db_to_discord
-        new_bot.update_nick((msg.guild_id || raise "not in a guild").to_u64, new_member_data.name)
+        new_bot.update_nick(
+          (msg.guild_id || raise "not in a guild"),
+          new_member_data.name || new_member_data.id
+        )
       end
 
       Members << new_bot
