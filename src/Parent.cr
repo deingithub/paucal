@@ -6,15 +6,11 @@ class ParentBot
     @recently_proxied = LimitedQueue(Discord::Message).new(20)
     @client.on_message_create do |msg|
       delete_delete_log(msg)
-      next if msg.author.bot
-      {% for command in %w(help whoami sync register unregister edit ed delete nick del) %}
-        if msg.content.starts_with?(";;#{{{command}}}")
-          {{command.id}}(msg)
-          next
-        end
-      {% end %}
-      proxy(msg)
       pings(msg)
+      unless msg.author.bot
+        commands(msg)
+        proxy(msg)
+      end
     end
 
     client.on_presence_update do |payload|
@@ -27,6 +23,34 @@ class ParentBot
     spawn @client.run
   end
 
+  def commands(msg)
+    begin
+      {% for command in %w(help whoami sync register unregister edit ed delete nick del explode) %}
+      if msg.content.starts_with?(";;#{{{command}}}")
+        @log.info{"Executing #{{{command}}} (\"#{msg.content}\") for #{msg.author.id}"}
+        {{command.id}}(msg)
+        return
+      end
+    {% end %}
+    rescue ex : PaucalError
+      @log.info(exception: ex) { "User error trying to execute command" }
+      @client.create_message(
+        msg.channel_id,
+        ":x: #{ex.message}"
+      )
+    rescue ex
+      @log.error(exception: ex) { "Internal error trying to execute command" }
+      @client.create_message(
+        msg.channel_id,
+        ":x: There was an internal error trying to execute your command: `#{ex}`"
+      )
+    end
+  end
+
+  def explode(msg)
+    user_error("this isn't supposed to work")
+  end
+
   def proxy(msg)
     Members.to_a.each do |member|
       next unless member.db_data.system_discord_id == msg.author.id
@@ -36,11 +60,7 @@ class ParentBot
       # for all proxy tag sets:
       pk_data.proxy_tags.each do |pt|
         # skip unless only prefix is set and present in the message or
-        next unless (pt.prefix && !pt.suffix && msg.content.starts_with?(pt.prefix.not_nil!)) ||
-                    # only suffix is set and present in the message or
-                    (pt.suffix && !pt.prefix && msg.content.ends_with?(pt.suffix.not_nil!)) ||
-                    # prefix and suffix are set and both present in the message
-                    (pt.prefix && pt.suffix && msg.content.starts_with?(pt.prefix.not_nil!) && msg.content.ends_with?(pt.suffix.not_nil!))
+        next unless contains_tag?(msg.content, pt)
 
         # delete proxy tags if needed
         content = msg.content
@@ -56,6 +76,8 @@ class ParentBot
   end
 
   def pings(msg)
+    return if msg.author.id == @client.client_id
+
     accumulated_pings = [] of String
     msg.content.scan(/<@!?([0-9]+)>/).each do |match|
       mention = Discord::Snowflake.new(match[1])
@@ -110,7 +132,7 @@ class ParentBot
   end
 
   def sync(msg)
-    system = get_system(msg.author.id)
+    system = get_system?(msg.author.id) || user_error("Your system isn't registered with Paucal yet.")
 
     # iterate over all members and replace their pk_data with new data from
     # the API (can throw every time, wrapping it in a transaction ensures
@@ -143,8 +165,11 @@ class ParentBot
   end
 
   def register(msg)
+    system = get_system?(msg.author.id) || user_error("Your system isn't registered with Paucal yet.")
+
     pk_member_id = msg.content.lchop(";;register").strip
-    system = get_system(msg.author.id)
+    user_error("You need to supply a five-character member ID.") unless pk_member_id.size == 5
+
     pk_data = Array(Models::PKMemberData).from_json(
       HTTP::Client.get(
         "https://api.pluralkit.me/v1/s/#{system.pk_system_id}/members",
@@ -181,27 +206,31 @@ class ParentBot
           (msg.guild_id || raise "not in a guild"),
           new_member_data.name || new_member_data.id
         )
+        @log.info { "Added Member #{pk_member_id} to system #{system.discord_id}" }
+        @client.create_message(msg.channel_id, "Successfully added member `#{pk_member_id}`: #{payload.user.mention}.")
       end
 
       Members << new_bot
       new_bot.start
-
-      @log.info { "Added Member #{pk_member_id} to system #{system.discord_id}" }
-      @client.create_message(msg.channel_id, "Successfully added member `#{pk_member_id}` (#{new_member_data.name}).")
     end
   end
 
   def unregister(msg)
     pk_member_id = msg.content.lchop(";;unregister").strip
+    user_error("You need to supply a five-character member ID.") unless pk_member_id.size == 5
+
     Database.exec(
       "update members set deleted=true,pk_data='' where system_discord_id=? and pk_member_id=?",
       msg.author.id.to_u64.to_i64, pk_member_id
     )
+
     check_it_worked = Database.query_all(
       "select * from members where deleted=true and pk_member_id=?",
       pk_member_id,
       as: Models::Member
-    )[0]
+    )[0]?
+    user_error("No such member in your system.") unless check_it_worked
+
     Members.find { |m| m.db_data.pk_member_id == pk_member_id }.not_nil!.stop
     Members.reject! { |m| m.db_data.pk_member_id == pk_member_id }
     @log.info { "Deleted member #{pk_member_id} from system #{msg.author.id}" }
@@ -211,74 +240,108 @@ class ParentBot
   def edit(msg)
     args = msg.content.lchop(";;edit").strip.split(" ")
 
-    # get the wanted message from the current channel (both of these can throw on bad args)
-    id = Discord::Snowflake.new(args.shift)
-    the_message = @client.get_channel_message(msg.channel_id, id)
+    the_message =
+      begin
+        id = Discord::Snowflake.new(args.shift)
+        @client.get_channel_message(msg.channel_id, id)
+      rescue ex
+        user_error("No message with that ID.")
+      end
 
     # only work on messages from our system account's members
     get_members(get_system(msg.author.id)).each do |member|
       bot = get_bot(member)
       next unless bot.bot_id == the_message.author.id
       bot.edit(the_message, args.join(" "))
+      @client.delete_message(msg.channel_id, msg.id)
+      return
     end
-    @client.delete_message(msg.channel_id, msg.id)
+    user_error("Couldn't edit message.")
   end
 
   def ed(msg)
     text = msg.content.lchop(";;ed").strip
-    the_message = @client.get_channel_message(msg.channel_id, LastSystemMessageIDs[msg.author.id])
+    the_message = @client.get_channel_message(
+      msg.channel_id,
+      LastSystemMessageIDs[msg.author.id]? || user_error("No recently proxied message in memory.")
+    )
+
     # only work on messages from our system account's members
     get_members(get_system(msg.author.id)).each do |member|
       bot = get_bot(member)
       next unless bot.bot_id == the_message.author.id
       bot.edit(the_message, text)
+      @client.delete_message(msg.channel_id, msg.id)
+      return
     end
-    @client.delete_message(msg.channel_id, msg.id)
+    user_error("Couldn't edit message.")
   end
 
   def delete(msg)
     args = msg.content.lchop(";;delete").strip.split(" ")
 
-    # get the wanted message from the current channel (both of these can throw on bad args)
-    id = Discord::Snowflake.new(args.shift)
-    the_message = @client.get_channel_message(msg.channel_id, id)
+    the_message =
+      begin
+        id = Discord::Snowflake.new(args.shift)
+        @client.get_channel_message(msg.channel_id, id)
+      rescue ex
+        user_error("No message with that ID.")
+      end
 
     # only work on messages from our system account's members
     get_members(get_system(msg.author.id)).each do |member|
       bot = get_bot(member)
       next unless bot.bot_id == the_message.author.id
       bot.delete(the_message)
+      @client.delete_message(msg.channel_id, msg.id)
+      return
     end
-    @client.delete_message(msg.channel_id, msg.id)
+    user_error("Couldn't delete message.")
   end
 
   def del(msg)
-    the_message = @client.get_channel_message(msg.channel_id, LastSystemMessageIDs[msg.author.id])
+    the_message = @client.get_channel_message(
+      msg.channel_id,
+      LastSystemMessageIDs[msg.author.id]? || user_error("No recently proxied message in memory.")
+    )
+
     # only work on messages from our system account's members
     get_members(get_system(msg.author.id)).each do |member|
       bot = get_bot(member)
       next unless bot.bot_id == the_message.author.id
       bot.delete(the_message)
+      LastSystemMessageIDs.delete(msg.author.id)
+      @client.delete_message(msg.channel_id, msg.id)
+      return
     end
-    LastSystemMessageIDs.delete(msg.author.id)
-    @client.delete_message(msg.channel_id, msg.id)
+    user_error("Couldn't delete message.")
   end
 
   def nick(msg)
     args = msg.content.lchop(";;nick").strip.split(" ")
-    mention = args.shift
-    mention = Discord::Snowflake.new(mention.delete { |x| !x.ascii_number? })
+
+    mention =
+      begin
+        Discord::Snowflake.new(args.shift.delete { |x| !x.ascii_number? })
+      rescue ex
+        user_error("That doesn't look like a mention.")
+      end
+
     name = args.join(" ")
+    user_error("That name is too long (#{name.size}/32)") unless name.size <= 32
+
     get_members(get_system(msg.author.id)).each do |member|
       bot = get_bot(member)
       if bot.bot_id == mention
-        bot.update_nick(msg.guild_id || raise("not in a guild"), name)
+        bot.update_nick(msg.guild_id || user_error("You're not in a guild."), name)
+        return
       end
     end
+    user_error("Couldn't update this user's nick.")
   end
 
   def whoami(msg)
-    system = get_system(msg.author.id)
+    system = get_system?(msg.author.id) || user_error("Your system isn't registered with Paucal yet.")
     members = get_members(system)
     members_str = members.map { |m|
       "- `#{m.pk_member_id}` <@#{get_bot(m).bot_id}> (#{m.data.proxy_tags.join(", ")})"
