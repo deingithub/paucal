@@ -139,14 +139,18 @@ class ParentBot
     # consistency between different states in the system)
     Database.transaction do |trans|
       get_members(system).each do |member|
-        pk_data = Models::PKMemberData.from_json(
-          HTTP::Client.get(
-            "https://api.pluralkit.me/v1/m/#{member.pk_member_id}",
-            headers: HTTP::Headers{
-              "Authorization" => system.pk_token,
-            }
-          ).body
-        )
+        pk_data =
+          begin
+            http_data = HTTP::Client.get(
+              "https://api.pluralkit.me/v1/m/#{member.pk_member_id}",
+              headers: HTTP::Headers{
+                "Authorization" => system.pk_token,
+              }
+            ).body
+            Models::PKMemberData.from_json(http_data)
+          rescue ex
+            user_error("No well-formed API response for `#{member.pk_member_id}`.")
+          end
 
         trans.connection.exec(
           "update members set pk_data=? where pk_member_id=?",
@@ -158,7 +162,11 @@ class ParentBot
     get_members(system).each do |db_member|
       bot = Members.find { |m| m.db_data.pk_member_id == db_member.pk_member_id }.not_nil!
       bot.db_data = db_member
-      bot.sync_db_to_discord
+      begin
+        bot.sync_db_to_discord
+      rescue ex
+        user_error("Failed to push updates for <@#{get_bot(db_member).bot_id}> to Discord, most likely due to a rate limit. Try again later.")
+      end
     end
 
     @client.create_message(msg.channel_id, "Successfully pulled in all recent changes to your members.")
@@ -178,17 +186,17 @@ class ParentBot
         }
       ).body
     )
-    new_member_data = pk_data.find { |m| m.id == pk_member_id }.not_nil!
+    new_member_data = pk_data.find { |m| m.id == pk_member_id } || user_error("Couldn't find that member ID among your system members.")
     Database.transaction do |trans|
       free_token = trans.connection.query_all(
         "select * from bots where not exists (select members.token from members where members.token = bots.token)",
         as: Models::Bot
-      )[0]
+      )[0]? || user_error("No free slots at the moment. Contact a moderator.")
+
       trans.connection.exec(
         "insert into members (pk_member_id, system_discord_id, token, pk_data) values (?,?,?,?)",
         new_member_data.id, system.discord_id.to_u64.to_i64, free_token.token, new_member_data.to_json
       )
-
       new_member = trans.connection.query_all(
         "select * from members where pk_member_id=?",
         new_member_data.id,
