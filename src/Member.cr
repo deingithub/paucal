@@ -38,7 +38,7 @@ class MemberBot
     user = @client.get_user(@db_data.system_discord_id)
     @client.status_update(
       "online",
-      Discord::GamePlaying.new("#{user.username}##{user.discriminator}", :listening)
+      Discord::GamePlaying.new(user.tag, :listening)
     )
   end
 

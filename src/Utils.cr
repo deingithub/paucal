@@ -1,3 +1,11 @@
+# Monkeypatch the User struct to have an easy to use method for getting a user's tag
+module Discord
+  struct User
+    def tag
+      "#{username}##{discriminator}"
+    end
+  end
+end
 
 # A data structure wrapping an Array that doesn't keep more than @capacity entries
 class LimitedQueue(T)

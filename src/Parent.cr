@@ -72,7 +72,7 @@ class ParentBot
     unless accumulated_pings.empty?
       @client.create_message(
         msg.channel_id,
-        "Don't mind me #{msg.author.username}##{msg.author.discriminator}, just pinging the relevant accounts: #{accumulated_pings.join(", ")}"
+        "Don't mind me #{msg.author.tag}, just pinging the relevant accounts: #{accumulated_pings.join(", ")}"
       )
     end
   end
