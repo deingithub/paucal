@@ -203,7 +203,11 @@ class ParentBot
         as: Models::Member
       )[0]
 
-      auto_sync_client = Discord::Client.new(token: "Bot #{free_token.token}")
+      auto_sync_client = Discord::Client.new(
+        token: "Bot #{free_token.token}",
+        zlib_buffer_size: 10*1024,
+        intents: Discord::Gateway::Intents::None
+      )
       new_bot = MemberBot.new(
         new_member,
         auto_sync_client

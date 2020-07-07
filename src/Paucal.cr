@@ -23,7 +23,11 @@ Log.info { "Starting Paucal." }
 Database.query_all("select * from members where deleted = false", as: Models::Member).each do |member|
   Members << MemberBot.new(
     member,
-    Discord::Client.new(token: "Bot #{member.token}")
+    Discord::Client.new(
+      token: "Bot #{member.token}",
+      zlib_buffer_size: 10*1024,
+      intents: Discord::Gateway::Intents::None
+    )
   )
 end
 
