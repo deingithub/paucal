@@ -1,9 +1,11 @@
 require "log"
 
 class ParentBot
+  Log = ::Log.for("parent")
+
   def initialize(@client : Discord::Client)
-    @log = ::Log.for("parent")
     @recently_proxied = LimitedQueue(Discord::Message).new(20)
+
     @client.on_message_create do |msg|
       delete_delete_log(msg)
       pings(msg)
@@ -25,21 +27,21 @@ class ParentBot
 
   def commands(msg)
     begin
-      {% for command in %w(help whoami sync register unregister edit ed delete nick del explode) %}
+      {% for command in %w(help whoarewe sync register edit ed delete nick del signup) %}
       if msg.content.starts_with?(";;#{{{command}}}")
-        @log.info{"Executing #{{{command}}} (\"#{msg.content}\") for #{msg.author.id}"}
+        Log.info{"Executing #{{{command}}} (\"#{msg.content}\") for #{msg.author.id}"}
         {{command.id}}(msg)
         return
       end
     {% end %}
     rescue ex : PaucalError
-      @log.info(exception: ex) { "User error trying to execute command" }
+      Log.error(exception: ex) { "Anticipated error trying to execute command" }
       @client.create_message(
         msg.channel_id,
         ":x: #{ex.message}"
       )
     rescue ex
-      @log.error(exception: ex) { "Internal error trying to execute command" }
+      Log.error(exception: ex) { "Internal error trying to execute command" }
       @client.create_message(
         msg.channel_id,
         ":x: There was an internal error trying to execute your command: `#{ex}`"
@@ -47,31 +49,14 @@ class ParentBot
     end
   end
 
-  def explode(msg)
-    user_error("this isn't supposed to work")
-  end
-
   def proxy(msg)
-    Members.to_a.each do |member|
-      next unless member.db_data.system_discord_id == msg.author.id
+    Members.select { |mb| mb.db_data.system_discord_id == msg.author.id }.each do |mb|
+      pk_data = mb.db_data.data
+      proxy_tag = pk_data.proxy_tags.find { |pt| pt.matches?(msg.content) } || next
 
-      # grab the pk data
-      pk_data = member.db_data.data
-      # for all proxy tag sets:
-      pk_data.proxy_tags.each do |pt|
-        # skip unless only prefix is set and present in the message or
-        next unless contains_tag?(msg.content, pt)
-
-        # delete proxy tags if needed
-        content = msg.content
-        unless pk_data.keep_proxy
-          content = content.lchop(pt.prefix || "").rchop(pt.suffix || "")
-        end
-        @client.delete_message(msg.channel_id, msg.id)
-        @recently_proxied << msg
-        member.post(msg.channel_id, content)
-        return
-      end
+      mb.post(msg, proxy_tag)
+      @recently_proxied << msg
+      @client.delete_message(msg.channel_id, msg.id)
     end
   end
 
@@ -79,21 +64,17 @@ class ParentBot
     return if msg.author.id == @client.client_id
 
     accumulated_pings = [] of String
-    msg.content.scan(/<@!?([0-9]+)>/).each do |match|
-      mention = Discord::Snowflake.new(match[1])
-      Members.each do |member|
-        if member.bot_id == mention
-          accumulated_pings << "<@#{member.db_data.system_discord_id}>"
-        end
-      end
+    msg.mentions.each do |user|
+      mb = Members.find { |mb| mb.bot_id == user.id } || next
+      next if mb.db_data.system_discord_id == msg.author.id
+
+      accumulated_pings << "<@#{mb.db_data.system_discord_id}>"
     end
-    accumulated_pings.reject!(msg.author.mention)
-    unless accumulated_pings.empty?
-      @client.create_message(
-        msg.channel_id,
-        "Don't mind me #{msg.author.tag}, just pinging the relevant accounts: #{accumulated_pings.join(", ")}"
-      )
-    end
+
+    @client.create_message(
+      msg.channel_id,
+      "Don't mind me #{msg.author.tag}, just pinging the relevant accounts: #{accumulated_pings.join(", ")}"
+    ) unless accumulated_pings.empty?
   end
 
   def delete_delete_log(msg)
@@ -109,14 +90,14 @@ class ParentBot
     @client.create_message(
       msg.channel_id,
       <<-HELP
-      **Paucal** is a prototype PluralKit supplement bot. 
+      **Paucal** is a prototype PluralKit supplement bot.
       `;;help` Display all of this.
+      `;;signup` Sign up for Paucal.
 
       *System Commands: To use these, your system needs to be manually registered first — ask a bot admin for this.*
       `;;sync` Synchronize the data of Paucal-registered members with the PluralKit API.
       `;;register <pk member id>` Register `<pk member id>` with Paucal to make them proxyable with the bot.
-      `;;unregister <pk member id>` Irreversibly unregister `<pk member id>` from Paucal.
-      `;;whoami` Show which members are already registered with Paucal.
+      `;;whoarewe` Show which members are already registered with Paucal.
 
       *Member Commands*
       ~~`;;role <@member> <rolename>` Toggle the presence of `<rolename>` on the mentioned member.~~
@@ -131,41 +112,83 @@ class ParentBot
     )
   end
 
+  def signup(msg)
+    if get_system?(msg.author.id)
+      anticipate(
+        "You're already signed up with Paucal. If there's an issue with your system data, please contact the bot operator."
+      )
+    end
+    if msg.content == ";;signup"
+      channel = @client.create_dm(msg.author.id)
+      @client.create_message(
+        channel.id,
+        <<-TEXT
+        Hi! Thanks for your interest in Paucal. To sign up, you'll need your **PluralKit token**. You can find out what it is using `pk;token`.
+        It should be a long string of characters that allows Paucal access to your profile data even if it's set to private.
+        Paucal will only ever perform reads on your data, and only if you explicitly request them.
+        If you want to, you can reset your token after you have registered all members you want to, using `pk;token refresh`.
+
+        *Once you've found your token, come back to* ***this DM channel*** *and type* `;;signup <Token>`.
+        TEXT
+      )
+    else
+      token = msg.content.lchop(";;signup").strip
+
+      system_response = HTTP::Client.get(
+        "https://api.pluralkit.me/v1/s",
+        headers: HTTP::Headers{
+          "Authorization" => token,
+        }
+      )
+      anticipate("Your token doesn't seem to be valid.") if system_response.status_code == 401
+      pk_system = Hash(String, String?).from_json(system_response.body)
+
+      Database.exec(
+        "insert into systems(discord_id, pk_system_id, pk_token) values(?,?,?)",
+        msg.author.id.to_i64, pk_system["id"], token
+      )
+
+      @client.create_message(
+        msg.channel_id,
+        "Your system is now signed up. Use `;;register <Member ID>` to register individual members with Paucal."
+      )
+    end
+  end
+
   def sync(msg)
-    system = get_system?(msg.author.id) || user_error("Your system isn't registered with Paucal yet.")
+    pk_system = get_system?(msg.author.id) || anticipate(
+      "You're not signed up with Paucal yet. Please type `;;signup` to do that."
+    )
 
     # iterate over all members and replace their pk_data with new data from
     # the API (can throw every time, wrapping it in a transaction ensures
     # consistency between different states in the system)
     Database.transaction do |trans|
-      get_members(system).each do |member|
-        pk_data =
-          begin
-            http_data = HTTP::Client.get(
-              "https://api.pluralkit.me/v1/m/#{member.pk_member_id}",
-              headers: HTTP::Headers{
-                "Authorization" => system.pk_token,
-              }
-            ).body
-            Models::PKMemberData.from_json(http_data)
-          rescue ex
-            user_error("No well-formed API response for `#{member.pk_member_id}`.")
-          end
+      get_members(pk_system).each do |member|
+        http_data = HTTP::Client.get(
+          "https://api.pluralkit.me/v1/m/#{member.pk_member_id}",
+          headers: HTTP::Headers{
+            "Authorization" => pk_system.pk_token,
+          }
+        ).body
+        pk_data = PKMemberData.from_json(http_data)
 
         trans.connection.exec(
           "update members set pk_data=? where pk_member_id=?",
-          pk_data.to_json, member.pk_member_id
+          pk_data.not_nil!.to_json, member.pk_member_id
         )
       end
     end
 
-    get_members(system).each do |db_member|
-      bot = Members.find { |m| m.db_data.pk_member_id == db_member.pk_member_id }.not_nil!
-      bot.db_data = db_member
+    get_members(pk_system).each do |member|
+      bot = Members.find { |m| m.db_data.pk_member_id == member.pk_member_id }.not_nil!
+      bot.db_data = member
       begin
         bot.sync_db_to_discord
       rescue ex
-        user_error("Failed to push updates for <@#{get_bot(db_member).bot_id}> to Discord, most likely due to a rate limit. Try again later.")
+        anticipate(
+          "Failed to push updates for <@#{bot.bot_id}> to Discord, most likely due to a rate limit. Try again later."
+        )
       end
     end
 
@@ -173,34 +196,39 @@ class ParentBot
   end
 
   def register(msg)
-    system = get_system?(msg.author.id) || user_error("Your system isn't registered with Paucal yet.")
+    pk_system = get_system?(msg.author.id) || anticipate(
+      "You're not signed up with Paucal yet. Please type `;;signup` to do that."
+    )
 
     pk_member_id = msg.content.lchop(";;register").strip
-    user_error("You need to supply a five-character member ID.") unless pk_member_id.size == 5
+    anticipate("You need to supply a five-character member ID.") unless pk_member_id.size == 5
 
-    pk_data = Array(Models::PKMemberData).from_json(
+    pk_data = Array(PKMemberData).from_json(
       HTTP::Client.get(
-        "https://api.pluralkit.me/v1/s/#{system.pk_system_id}/members",
+        "https://api.pluralkit.me/v1/s/#{pk_system.pk_system_id}/members",
         headers: HTTP::Headers{
-          "Authorization" => system.pk_token,
+          "Authorization" => pk_system.pk_token,
         }
       ).body
     )
-    new_member_data = pk_data.find { |m| m.id == pk_member_id } || user_error("Couldn't find that member ID among your system members.")
+    new_member_data = pk_data.find { |m| m.id == pk_member_id } || anticipate(
+      "Couldn't find that member ID among your system members."
+    )
+
     Database.transaction do |trans|
       free_token = trans.connection.query_all(
         "select * from bots where not exists (select members.token from members where members.token = bots.token)",
-        as: Models::Bot
-      )[0]? || user_error("No free slots at the moment. Contact a moderator.")
+        as: Bot
+      )[0]? || anticipate("No free slots at the moment. Contact the bot operator.")
 
       trans.connection.exec(
         "insert into members (pk_member_id, system_discord_id, token, pk_data) values (?,?,?,?)",
-        new_member_data.id, system.discord_id.to_u64.to_i64, free_token.token, new_member_data.to_json
+        new_member_data.id, pk_system.discord_id.to_i64, free_token.token, new_member_data.to_json
       )
       new_member = trans.connection.query_all(
         "select * from members where pk_member_id=?",
         new_member_data.id,
-        as: Models::Member
+        as: PKMember
       )[0]
 
       auto_sync_client = Discord::Client.new(
@@ -212,41 +240,20 @@ class ParentBot
         new_member,
         auto_sync_client
       )
+
       auto_sync_client.on_ready do |payload|
         new_bot.sync_db_to_discord
         new_bot.update_nick(
           (msg.guild_id || raise "not in a guild"),
           new_member_data.name || new_member_data.id
         )
-        @log.info { "Added Member #{pk_member_id} to system #{system.discord_id}" }
+        Log.info { "Added Member #{pk_member_id} to system #{pk_system.discord_id}" }
         @client.create_message(msg.channel_id, "Successfully added member `#{pk_member_id}`: #{payload.user.mention}.")
       end
 
       Members << new_bot
       new_bot.start
     end
-  end
-
-  def unregister(msg)
-    pk_member_id = msg.content.lchop(";;unregister").strip
-    user_error("You need to supply a five-character member ID.") unless pk_member_id.size == 5
-
-    Database.exec(
-      "update members set deleted=true,pk_data='' where system_discord_id=? and pk_member_id=?",
-      msg.author.id.to_u64.to_i64, pk_member_id
-    )
-
-    check_it_worked = Database.query_all(
-      "select * from members where deleted=true and pk_member_id=?",
-      pk_member_id,
-      as: Models::Member
-    )[0]?
-    user_error("No such member in your system.") unless check_it_worked
-
-    Members.find { |m| m.db_data.pk_member_id == pk_member_id }.not_nil!.stop
-    Members.reject! { |m| m.db_data.pk_member_id == pk_member_id }
-    @log.info { "Deleted member #{pk_member_id} from system #{msg.author.id}" }
-    @client.create_message(msg.channel_id, "Successfully unregistered member.")
   end
 
   def edit(msg)
@@ -257,7 +264,7 @@ class ParentBot
         id = Discord::Snowflake.new(args.shift)
         @client.get_channel_message(msg.channel_id, id)
       rescue ex
-        user_error("No message with that ID.")
+        anticipate("No message with that ID.")
       end
 
     # only work on messages from our system account's members
@@ -268,14 +275,14 @@ class ParentBot
       @client.delete_message(msg.channel_id, msg.id)
       return
     end
-    user_error("Couldn't edit message.")
+    anticipate("Couldn't edit message.")
   end
 
   def ed(msg)
     text = msg.content.lchop(";;ed").strip
     the_message = @client.get_channel_message(
       msg.channel_id,
-      LastSystemMessageIDs[msg.author.id]? || user_error("No recently proxied message in memory.")
+      LastSystemMessageIDs[msg.author.id]? || anticipate("No recently proxied message in memory.")
     )
 
     # only work on messages from our system account's members
@@ -286,7 +293,7 @@ class ParentBot
       @client.delete_message(msg.channel_id, msg.id)
       return
     end
-    user_error("Couldn't edit message.")
+    anticipate("Couldn't edit message.")
   end
 
   def delete(msg)
@@ -297,7 +304,7 @@ class ParentBot
         id = Discord::Snowflake.new(args.shift)
         @client.get_channel_message(msg.channel_id, id)
       rescue ex
-        user_error("No message with that ID.")
+        anticipate("No message with that ID.")
       end
 
     # only work on messages from our system account's members
@@ -308,13 +315,13 @@ class ParentBot
       @client.delete_message(msg.channel_id, msg.id)
       return
     end
-    user_error("Couldn't delete message.")
+    anticipate("Couldn't delete message.")
   end
 
   def del(msg)
     the_message = @client.get_channel_message(
       msg.channel_id,
-      LastSystemMessageIDs[msg.author.id]? || user_error("No recently proxied message in memory.")
+      LastSystemMessageIDs[msg.author.id]? || anticipate("No recently proxied message in memory.")
     )
 
     # only work on messages from our system account's members
@@ -326,7 +333,7 @@ class ParentBot
       @client.delete_message(msg.channel_id, msg.id)
       return
     end
-    user_error("Couldn't delete message.")
+    anticipate("Couldn't delete message.")
   end
 
   def nick(msg)
@@ -336,24 +343,20 @@ class ParentBot
       begin
         Discord::Snowflake.new(args.shift.delete { |x| !x.ascii_number? })
       rescue ex
-        user_error("That doesn't look like a mention.")
+        anticipate("That doesn't look like a mention.")
       end
 
     name = args.join(" ")
-    user_error("That name is too long (#{name.size}/32)") unless name.size <= 32
+    anticipate("That name is too long (#{name.size}/32)") unless name.size <= 32
 
-    get_members(get_system(msg.author.id)).each do |member|
-      bot = get_bot(member)
-      if bot.bot_id == mention
-        bot.update_nick(msg.guild_id || user_error("You're not in a guild."), name)
-        return
-      end
-    end
-    user_error("Couldn't update this user's nick.")
+    member_bot = Members.find { |mb|
+      mention == mb.bot_id && mb.db_data.system_discord_id == msg.author.id
+    } || anticipate("That doesn't seem to be one of your members.")
+    member_bot.update_nick(msg.guild_id.not_nil!, name)
   end
 
-  def whoami(msg)
-    system = get_system?(msg.author.id) || user_error("Your system isn't registered with Paucal yet.")
+  def whoarewe(msg)
+    system = get_system?(msg.author.id) || anticipate("You're not signed up with Paucal yet. Please type `;;signup` to do that.")
     members = get_members(system)
     members_str = members.map { |m|
       "- `#{m.pk_member_id}` <@#{get_bot(m).bot_id}> (#{m.data.proxy_tags.join(", ")})"

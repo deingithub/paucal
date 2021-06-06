@@ -1,67 +1,74 @@
-module Models
-  # Helper class to safely convert DB strings to Crystal strings without really
-  # obnoxious edge cases. Trust me, this is good.
-  class DBString
-    def self.from_rs(rs)
-      rs.read.to_s
+# monkeypatch snowflakes to be DB readable directly
+module Discord
+  struct Snowflake
+    include DB::Mappable
+
+    def self.new(rs : DB::ResultSet)
+      self.new(rs.read(Int64).to_u64)
+    end
+
+    def to_i64
+      self.to_u64.to_i64
     end
   end
+end
 
-  class DBSnowflake
-    def self.from_rs(rs)
-      Discord::Snowflake.new(rs.read(Int64).to_u64)
-    end
+# A pk system registered with Paucal.
+class PKSystem
+  include DB::Serializable
+
+  property discord_id : Discord::Snowflake
+  property pk_system_id : String
+  property pk_token : String
+end
+
+# A member bot's login data.
+class Bot
+  include DB::Serializable
+
+  property token : String
+end
+
+# A pk system member registered with Paucal.
+class PKMember
+  include DB::Serializable
+
+  property pk_member_id : String
+  property deleted : Bool
+  property system_discord_id : Discord::Snowflake
+  property token : String
+  @[DB::Field(key: "pk_data")]
+  property data : PKMemberData
+end
+
+class PKMemberData
+  include JSON::Serializable
+  include DB::Mappable
+
+  def self.new(rs : DB::ResultSet)
+    self.from_json(rs.read(String))
   end
 
-  # A pk system registered with Paucal.
-  class System
-    DB.mapping({
-      discord_id:   {type: Discord::Snowflake, converter: DBSnowflake},
-      pk_system_id: {type: String, converter: DBString},
-      pk_token:     {type: String, converter: DBString},
-    })
+  property id : String
+  property name : String?
+  property avatar_url : String?
+  property proxy_tags : Array(PKProxyTag)
+  property keep_proxy : Bool
+end
+
+class PKProxyTag
+  include JSON::Serializable
+  property prefix : String?
+  property suffix : String?
+
+  def to_s(io : IO)
+    io << (@prefix || "") << "text" << (@suffix || "")
   end
 
-  # A member bot's login data.
-  class Bot
-    DB.mapping({
-      token: {type: String, converter: DBString},
-    })
-  end
+  def matches?(content : String) : Bool
+    starts_with = content.starts_with?(@prefix || "")
+    ends_with = content.ends_with?(@suffix || "")
 
-  # A pk system member registered with Paucal.
-  class Member
-    DB.mapping({
-      pk_member_id:      {type: String, converter: DBString},
-      deleted:           Bool,
-      system_discord_id: {type: Discord::Snowflake, converter: DBSnowflake},
-      token:             {type: String, converter: DBString},
-      pk_data:           {type: String, converter: DBString},
-    })
-
-    def data
-      PKMemberData.from_json(@pk_data)
-    end
-  end
-
-  class PKMemberData
-    JSON.mapping({
-      id:         String,
-      name:       String?,
-      avatar_url: String?,
-      proxy_tags: Array(PKProxyTag),
-      keep_proxy: Bool,
-    })
-  end
-
-  class PKProxyTag
-    JSON.mapping({
-      prefix: String?,
-      suffix: String?,
-    })
-
-    def to_s(io : IO)
-      io << "#{@prefix || ""}text#{@suffix || ""}"
-    end
+    return (@prefix && starts_with && @suffix && ends_with) || (@prefix && starts_with) || (@suffix && ends_with) || false
   end
 end

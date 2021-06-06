@@ -20,7 +20,31 @@ require "./Parent"
 
 Log.info { "Starting Paucal." }
 
-Database.query_all("select * from members where deleted = false", as: Models::Member).each do |member|
+last_migration_number = 0
+begin
+  last_migration_number = Database.query_one(
+    "SELECT * FROM applied_migrations ORDER BY number DESC LIMIT 1;",
+    as: Int64
+  )
+rescue
+end
+Dir.open(Dir.current + "/migrations") do |dir|
+  dir.children.sort.each do |filename|
+    number = filename.rchop(".sql").to_i
+    content = File.open("migrations/" + filename) { |f| f.gets_to_end }
+    if number > last_migration_number
+      Database.transaction do |trans|
+        content.split(";").each do |statement|
+          trans.connection.exec(statement) unless statement.blank?
+        end
+        trans.connection.exec("INSERT INTO applied_migrations VALUES(?)", number)
+      end
+      Log.info { "Applied migration #{number}" }
+    end
+  end
+end
+
+Database.query_all("select * from members where deleted = false", as: PKMember).each do |member|
   Members << MemberBot.new(
     member,
     Discord::Client.new(

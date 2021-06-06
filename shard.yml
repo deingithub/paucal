@@ -9,17 +9,15 @@ targets:
     main: src/Paucal.cr
 
 dependencies:
-  discordcr:
-    github: discordcr/discordcr
-    branch: master
   db:
     github: crystal-lang/crystal-db
   sqlite3:
     github: crystal-lang/crystal-sqlite3
   dotenv:
     github: gdotdesign/cr-dotenv
+  discordcr:
+    github: shardlab/discordcr
 
-
-crystal: 0.34.0
+crystal: 1.0.0
 
 license: MIT
