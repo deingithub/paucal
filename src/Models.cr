@@ -20,6 +20,9 @@ class PKSystem
   property discord_id : Discord::Snowflake
   property pk_system_id : String
   property pk_token : String
+  property current_fronter_pk_id : String?
+  property autoproxy_enable : Bool
+  property autoproxy_member : String?
 end
 
 # A member bot's login data.
@@ -39,6 +42,9 @@ class PKMember
   property token : String
   @[DB::Field(key: "pk_data")]
   property data : PKMemberData
+  @[DB::Field(converter: ProxyTagListWhyMustICodeThisPleaseMakeThePainStop)]
+  property local_tags : Array(PKProxyTag)?
+  property disabled : Bool
 end
 
 class PKMemberData
@@ -65,10 +71,19 @@ class PKProxyTag
     io << (@prefix || "") << "text" << (@suffix || "")
   end
 
+  def initialize(@prefix, @suffix)
+  end
+
   def matches?(content : String) : Bool
     starts_with = content.starts_with?(@prefix || "")
     ends_with = content.ends_with?(@suffix || "")
+    return starts_with && ends_with if @prefix && @suffix
+    return (@prefix && starts_with) || (@suffix && ends_with) || false
+  end
+end
 
-    return (@prefix && starts_with && @suffix && ends_with) || (@prefix && starts_with) || (@suffix && ends_with) || false
+class ProxyTagListWhyMustICodeThisPleaseMakeThePainStop
+  def self.from_rs(rs)
+    return Array(PKProxyTag).from_json(rs.read(String?) || return nil)
   end
 end

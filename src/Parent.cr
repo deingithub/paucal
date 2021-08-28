@@ -27,7 +27,7 @@ class ParentBot
 
   def commands(msg)
     begin
-      {% for command in %w(help whoarewe sync register edit ed delete nick del signup) %}
+      {% for command in %w(help whoarewe sync register edit ed delete nick del signup front autoproxy ap disable enable tags) %}
       if msg.content.starts_with?(";;#{{{command}}}")
         Log.info{"Executing #{{{command}}} (\"#{msg.content}\") for #{msg.author.id}"}
         {{command.id}}(msg)
@@ -51,8 +51,10 @@ class ParentBot
 
   def proxy(msg)
     Members.select { |mb| mb.db_data.system_discord_id == msg.author.id }.each do |mb|
+      next if mb.db_data.disabled
       pk_data = mb.db_data.data
-      proxy_tag = pk_data.proxy_tags.find { |pt| pt.matches?(msg.content) } || next
+      tags = mb.db_data.local_tags || pk_data.proxy_tags
+      proxy_tag = tags.find { |pt| pt.matches?(msg.content) } || next
 
       mb.post(msg, proxy_tag)
       @recently_proxied << msg
@@ -94,14 +96,16 @@ class ParentBot
       `;;help` Display all of this.
       `;;signup` Sign up for Paucal.
 
-      *System Commands: To use these, your system needs to be manually registered first — ask a bot admin for this.*
+      *System Commands: To use these, your system needs to be registered first with `;;signup`.*
       `;;sync` Synchronize the data of Paucal-registered members with the PluralKit API.
       `;;register <pk member id>` Register `<pk member id>` with Paucal to make them proxyable with the bot.
       `;;whoarewe` Show which members are already registered with Paucal.
 
       *Member Commands*
-      ~~`;;role <@member> <rolename>` Toggle the presence of `<rolename>` on the mentioned member.~~
       `;;nick <@member> <nick>` Update the mentioned member's nick on the server to `<nick>`.
+      `;;disable <@member>` Temporarily disable the mentioned members. No messages will be proxied for them.
+      `;;enable <@member>` Re-enable the mentioned members that have been disabled previously.
+      `;;tags <@member> <proxy tags>` Set the Paucal-only proxy tags for the member. The list must be space-separated, with prefix and suffix around `text`, e.g.: `[text] Atext textA` for three proxy tags, one with prefix and suffix and one with each prefix and suffix only. If these are enabled, messages won't be proxied with the PluralKit tags anymore.
 
       *Message Commands: These only work on messages that have been proxied for your account. Reply to the messages you want to edit or delete. If you don't reply to a message, the last proxied message for your system will be affected.*
       `;;edit <text>`, `;;ed` Update the replied-to or last proxied message to contain `<text>`.
@@ -339,7 +343,14 @@ class ParentBot
     system = get_system?(msg.author.id) || anticipate("You're not signed up with Paucal yet. Please type `;;signup` to do that.")
     members = get_members(system)
     members_str = members.map { |m|
-      "- `#{m.pk_member_id}` <@#{get_bot(m).bot_id}> (#{m.data.proxy_tags.join(", ")})"
+      s = "- <@#{get_bot(m).bot_id}>: **PluralKit ID**: `#{m.pk_member_id}`, "
+      if local_tags = m.local_tags
+        s += "**Paucal Tags:** #{local_tags.join(", ")} "
+      else
+        s += "**Tags:** #{m.data.proxy_tags.join(", ")} "
+      end
+      s += "(**Proxying Disabled**)" if m.disabled
+      s
     }.join("\n")
     if members.empty?
       members_str = "- None at all."
@@ -351,5 +362,95 @@ class ParentBot
       #{members_str}
       YOU
     )
+  end
+
+  def tags(msg)
+    args = msg.content.lchop(";;tags ").split(" ")
+    args.shift
+    mb = Members.find { |mb| msg.mentions.any? { |u| u.id == mb.bot_id } && mb.db_data.system_discord_id == msg.author.id } || anticipate("You need to mention a member whose tags to set.")
+    if args.empty?
+      Database.exec(
+        "update members set local_tags = null where pk_member_id = ?",
+        mb.db_data.pk_member_id
+      )
+      mb.db_data.local_tags = nil
+      @client.create_message(
+        msg.channel_id,
+        "Deleted Paucal-specific tags for <@#{mb.bot_id}>. Proxying will now work with PluralKit tags again."
+      )
+    else
+      tag_error = "Tags need to look like this: `[text]` or `alice:text` or `text#bob`."
+      tags = args.map { |arg|
+        p arg
+        anticipate(tag_error) unless arg.includes? "text"
+        list = arg.split("text")
+        if list.size == 2
+          PKProxyTag.new(prefix: list[0], suffix: list[1])
+        elsif list.size == 1
+          if arg.lchop(list[0]) == "text"
+            PKProxyTag.new(
+              prefix: list[0],
+              suffix: nil
+            )
+          else
+            PKProxyTag.new(
+              prefix: nil,
+              suffix: list[0]
+            )
+          end
+        else
+          anticipate(tag_error)
+        end
+      }
+      Database.exec(
+        "update members set local_tags = ? where pk_member_id = ?",
+        tags.to_json, mb.db_data.pk_member_id
+      )
+      mb.db_data.local_tags = tags
+      @client.create_message(
+        msg.channel_id,
+        "Set Paucal-specific tags for <@#{mb.bot_id}>. Proxying will no longer work with PluralKit tags."
+      )
+    end
+  end
+
+  def front(msg)
+  end
+
+  def autoproxy(msg)
+  end
+
+  def ap(msg)
+    autoproxy(msg)
+  end
+
+  def disable(msg)
+    msg.mentions.each do |user|
+      mb = Members.find { |mb| mb.bot_id == user.id && mb.db_data.system_discord_id == msg.author.id } || next
+      Database.exec(
+        "update members set disabled = true where pk_member_id = ?",
+        mb.db_data.pk_member_id
+      )
+      mb.db_data.disabled = true
+      @client.create_message(
+        msg.channel_id,
+        "Temporarily disabled proxying for <@#{mb.bot_id}>. You can re-enable it using `;;enable` at any time."
+      )
+    end
+  end
+
+  def enable(msg)
+    msg.mentions.each do |user|
+      mb = Members.find { |mb| mb.bot_id == user.id && mb.db_data.system_discord_id == msg.author.id } || next
+      Database.exec(
+        "update members set disabled = false where pk_member_id = ?",
+        mb.db_data.pk_member_id
+      )
+      mb.db_data.disabled = false
+      @client.create_message(
+        msg.channel_id,
+        "Re-enabled proxying for <@#{mb.bot_id}>."
+      )
+    end
   end
 end
