@@ -103,11 +103,9 @@ class ParentBot
       ~~`;;role <@member> <rolename>` Toggle the presence of `<rolename>` on the mentioned member.~~
       `;;nick <@member> <nick>` Update the mentioned member's nick on the server to `<nick>`.
 
-      *Message Commands: These only work on messages that have been proxied for your account. To obtain message IDs, enable developer mode and right-click/long tap the relevant message.*
-      `;;edit <message id> <text>` Update `<message id>` to contain `<text>`.
-      `;;delete <message id>` Delete `<message id>`.
-      `;;ed <text>` Update the last-proxied message to contain `<text>`.
-      `;;del` Delete the last-proxied message.
+      *Message Commands: These only work on messages that have been proxied for your account. Reply to the messages you want to edit or delete. If you don't reply to a message, the last proxied message for your system will be affected.*
+      `;;edit <text>`, `;;ed` Update the replied-to or last proxied message to contain `<text>`.
+      `;;delete`, `;;del` Delete the replied-to or last proxied message.
       HELP
     )
   end
@@ -256,56 +254,53 @@ class ParentBot
     end
   end
 
+
   def edit(msg)
-    args = msg.content.lchop(";;edit").strip.split(" ")
-
     the_message =
-      begin
-        id = Discord::Snowflake.new(args.shift)
-        @client.get_channel_message(msg.channel_id, id)
-      rescue ex
-        anticipate("No message with that ID.")
+    begin
+      if reference = msg.message_reference
+        @client.get_channel_message(
+          reference.channel_id.not_nil!,
+          reference.message_id.not_nil!
+        )
+      else
+        @client.get_channel_message(
+          msg.channel_id,
+          LastSystemMessageIDs[msg.author.id]? || anticipate("No recently proxied message in memory.")
+        )
       end
+    end
 
     # only work on messages from our system account's members
     get_members(get_system(msg.author.id)).each do |member|
       bot = get_bot(member)
       next unless bot.bot_id == the_message.author.id
-      bot.edit(the_message, args.join(" "))
+      bot.edit(the_message, msg.content)
       @client.delete_message(msg.channel_id, msg.id)
       return
     end
     anticipate("Couldn't edit message.")
   end
-
   def ed(msg)
-    text = msg.content.lchop(";;ed").strip
-    the_message = @client.get_channel_message(
-      msg.channel_id,
-      LastSystemMessageIDs[msg.author.id]? || anticipate("No recently proxied message in memory.")
-    )
-
-    # only work on messages from our system account's members
-    get_members(get_system(msg.author.id)).each do |member|
-      bot = get_bot(member)
-      next unless bot.bot_id == the_message.author.id
-      bot.edit(the_message, text)
-      @client.delete_message(msg.channel_id, msg.id)
-      return
-    end
-    anticipate("Couldn't edit message.")
+    edit(msg)
   end
+
 
   def delete(msg)
-    args = msg.content.lchop(";;delete").strip.split(" ")
-
     the_message =
-      begin
-        id = Discord::Snowflake.new(args.shift)
-        @client.get_channel_message(msg.channel_id, id)
-      rescue ex
-        anticipate("No message with that ID.")
+    begin
+      if reference = msg.message_reference
+        @client.get_channel_message(
+          reference.channel_id.not_nil!,
+          reference.message_id.not_nil!
+        )
+      else
+        @client.get_channel_message(
+          msg.channel_id,
+          LastSystemMessageIDs[msg.author.id]? || anticipate("No recently proxied message in memory.")
+        )
       end
+    end
 
     # only work on messages from our system account's members
     get_members(get_system(msg.author.id)).each do |member|
@@ -317,23 +312,8 @@ class ParentBot
     end
     anticipate("Couldn't delete message.")
   end
-
   def del(msg)
-    the_message = @client.get_channel_message(
-      msg.channel_id,
-      LastSystemMessageIDs[msg.author.id]? || anticipate("No recently proxied message in memory.")
-    )
-
-    # only work on messages from our system account's members
-    get_members(get_system(msg.author.id)).each do |member|
-      bot = get_bot(member)
-      next unless bot.bot_id == the_message.author.id
-      bot.delete(the_message)
-      LastSystemMessageIDs.delete(msg.author.id)
-      @client.delete_message(msg.channel_id, msg.id)
-      return
-    end
-    anticipate("Couldn't delete message.")
+    delete(msg)
   end
 
   def nick(msg)
