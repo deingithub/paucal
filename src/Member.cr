@@ -27,7 +27,7 @@ class MemberBot
     content = message.content
     content = content.lchop(pt.prefix || "").rchop(pt.suffix || "") unless @db_data.data.keep_proxy
 
-    proxied = @client.create_message(message.channel_id, content) if message.attachments.empty?
+    proxied = @client.create_message(message.channel_id, content, message_reference: message.message_reference) if message.attachments.empty?
 
     first_attachment = true
     message.attachments.each do |attachment|
@@ -36,11 +36,12 @@ class MemberBot
         buffer = Bytes.new(attachment.size)
         resp.body_io.read_fully(buffer)
 
-        msg = @client.upload_file(
+        msg = @client.create_message(
           message.channel_id,
           content,
-          IO::Memory.new(buffer),
-          attachment.filename
+          file: IO::Memory.new(buffer),
+          filename: attachment.filename,
+          message_reference: message.message_reference
         )
         proxied = msg if first_attachment
       end

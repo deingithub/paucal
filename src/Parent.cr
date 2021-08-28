@@ -254,53 +254,52 @@ class ParentBot
     end
   end
 
-
   def edit(msg)
     the_message =
-    begin
-      if reference = msg.message_reference
-        @client.get_channel_message(
-          reference.channel_id.not_nil!,
-          reference.message_id.not_nil!
-        )
-      else
-        @client.get_channel_message(
-          msg.channel_id,
-          LastSystemMessageIDs[msg.author.id]? || anticipate("No recently proxied message in memory.")
-        )
+      begin
+        if reference = msg.message_reference
+          @client.get_channel_message(
+            reference.channel_id.not_nil!,
+            reference.message_id.not_nil!
+          )
+        else
+          @client.get_channel_message(
+            msg.channel_id,
+            LastSystemMessageIDs[msg.author.id]? || anticipate("No recently proxied message in memory.")
+          )
+        end
       end
-    end
 
     # only work on messages from our system account's members
     get_members(get_system(msg.author.id)).each do |member|
       bot = get_bot(member)
       next unless bot.bot_id == the_message.author.id
-      bot.edit(the_message, msg.content)
+      bot.edit(the_message, msg.content.lchop(";;edit").lchop(";;ed"))
       @client.delete_message(msg.channel_id, msg.id)
       return
     end
     anticipate("Couldn't edit message.")
   end
+
   def ed(msg)
     edit(msg)
   end
 
-
   def delete(msg)
     the_message =
-    begin
-      if reference = msg.message_reference
-        @client.get_channel_message(
-          reference.channel_id.not_nil!,
-          reference.message_id.not_nil!
-        )
-      else
-        @client.get_channel_message(
-          msg.channel_id,
-          LastSystemMessageIDs[msg.author.id]? || anticipate("No recently proxied message in memory.")
-        )
+      begin
+        if reference = msg.message_reference
+          @client.get_channel_message(
+            reference.channel_id.not_nil!,
+            reference.message_id.not_nil!
+          )
+        else
+          @client.get_channel_message(
+            msg.channel_id,
+            LastSystemMessageIDs[msg.author.id]? || anticipate("No recently proxied message in memory.")
+          )
+        end
       end
-    end
 
     # only work on messages from our system account's members
     get_members(get_system(msg.author.id)).each do |member|
@@ -312,6 +311,7 @@ class ParentBot
     end
     anticipate("Couldn't delete message.")
   end
+
   def del(msg)
     delete(msg)
   end

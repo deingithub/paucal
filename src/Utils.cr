@@ -1,5 +1,3 @@
-
-
 # Monkeypatch the User struct to have an easy to use method for getting a user's tag
 # also add replies because i grow tired of waiting
 module Discord
@@ -8,22 +6,9 @@ module Discord
       "#{username}##{discriminator}"
     end
   end
-  struct MessageReference
-    include JSON::Serializable
-
-    property message_id : Snowflake?
-    property channel_id : Snowflake?
-    property guild_id : Snowflake?
-    property fail_if_not_exists : Bool?
-
-    def initialize(@message_id = nil, @channel_id = nil, @guild_id = nil, @fail_if_not_exists = nil)
-    end
-  end
-
-  struct Message
-    property message_reference : MessageReference?
 end
-end
+
+require "./StuffIStoleFromLibraryPullRequests.cr"
 
 # A data structure wrapping an Array that doesn't keep more than @capacity entries
 class LimitedQueue(T)
