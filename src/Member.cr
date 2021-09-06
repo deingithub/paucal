@@ -24,10 +24,12 @@ class MemberBot
   def post(message : Discord::Message, pt : PKProxyTag)
     proxied = nil
 
+    reference = message.referenced_message.not_nil!.message_reference if message.referenced_message
+
     content = message.content
     content = content.lchop(pt.prefix || "").rchop(pt.suffix || "") unless @db_data.data.keep_proxy
 
-    proxied = @client.create_message(message.channel_id, content, message_reference: message.message_reference) if message.attachments.empty?
+    proxied = @client.create_message(message.channel_id, content, message_reference: reference) if message.attachments.empty?
 
     first_attachment = true
     message.attachments.each do |attachment|
@@ -36,12 +38,12 @@ class MemberBot
         buffer = Bytes.new(attachment.size)
         resp.body_io.read_fully(buffer)
 
-        msg = @client.create_message(
+        msg = @client.upload_file(
           message.channel_id,
           content,
           file: IO::Memory.new(buffer),
           filename: attachment.filename,
-          message_reference: message.message_reference
+          message_reference: reference
         )
         proxied = msg if first_attachment
       end

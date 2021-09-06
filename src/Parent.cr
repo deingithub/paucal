@@ -64,6 +64,7 @@ class ParentBot
 
   def pings(msg)
     return if msg.author.id == @client.client_id
+    return if Members.any? {|mb| mb.bot_id == msg.author.id }
 
     accumulated_pings = [] of String
     msg.mentions.each do |user|
@@ -100,6 +101,8 @@ class ParentBot
       `;;sync` Synchronize the data of Paucal-registered members with the PluralKit API.
       `;;register <pk member id>` Register `<pk member id>` with Paucal to make them proxyable with the bot.
       `;;whoarewe` Show which members are already registered with Paucal.
+      `;;autoproxy <mode/@member>`, `;;ap` Set auto-proxying to `front`, `off` or a mentioned system member.
+      `;;switch <@member>` Switch the current fronter to the mentioned member. This has little effect until you set `;;ap` to `front`.
 
       *Member Commands*
       `;;nick <@member> <nick>` Update the mentioned member's nick on the server to `<nick>`.

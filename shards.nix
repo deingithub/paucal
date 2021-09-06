@@ -8,8 +8,8 @@
   discordcr = {
     owner = "shardlab";
     repo = "discordcr";
-    rev = "df22ea8f9499756949dfa16ed629bd1724b77e05";
-    sha256 = "0iy742w2m4vwq2m7d6zdj0hwb8l3s7scbilx9dmd2iabcaw39fmp";
+    rev = "916709535028811fc959744c88a1514716b9a11c";
+    sha256 = "1qbchi2ybz0s0vcxkki0bl156naqfpc8cbnk77m66rbkrv7qsbyb";
   };
   dotenv = {
     owner = "gdotdesign";

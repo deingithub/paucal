@@ -6,7 +6,7 @@ shards:
 
   discordcr:
     git: https://github.com/shardlab/discordcr.git
-    version: 0.4.0+git.commit.df22ea8f9499756949dfa16ed629bd1724b77e05
+    version: 0.4.0+git.commit.916709535028811fc959744c88a1514716b9a11c
 
   dotenv:
     git: https://github.com/gdotdesign/cr-dotenv.git

@@ -17,6 +17,7 @@ dependencies:
     github: gdotdesign/cr-dotenv
   discordcr:
     github: shardlab/discordcr
+    branch: master
 
 crystal: 1.0.0
 
