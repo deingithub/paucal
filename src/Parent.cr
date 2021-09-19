@@ -264,10 +264,10 @@ class ParentBot
   def edit(msg)
     the_message =
       begin
-        if reference = msg.message_reference
+        if reference = msg.referenced_message
           @client.get_channel_message(
-            reference.channel_id.not_nil!,
-            reference.message_id.not_nil!
+            reference.message_reference.channel_id.not_nil!,
+            reference.message_reference.message_id.not_nil!
           )
         else
           @client.get_channel_message(
@@ -295,10 +295,10 @@ class ParentBot
   def delete(msg)
     the_message =
       begin
-        if reference = msg.message_reference
+        if reference = msg.referenced_message
           @client.get_channel_message(
-            reference.channel_id.not_nil!,
-            reference.message_id.not_nil!
+            reference.message_reference.channel_id.not_nil!,
+            reference.message_reference.message_id.not_nil!
           )
         else
           @client.get_channel_message(
