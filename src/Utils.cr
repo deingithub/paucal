@@ -6,50 +6,49 @@ module Discord
       "#{username}##{discriminator}"
     end
   end
+
   module REST
-
-    #yeah the library doesn't have this for some godforlorn reason
+    # yeah the library doesn't have this for some godforlorn reason
     def upload_file(channel_id : UInt64 | Snowflake, content : String?, file : IO, filename : String? = nil, embed : Embed? = nil, spoiler : Bool = false, message_reference : MessageReference? = nil)
-  io = IO::Memory.new
+      io = IO::Memory.new
 
-  unless filename
-    if file.is_a? File
-      filename = File.basename(file.path)
-    else
-      filename = ""
+      unless filename
+        if file.is_a? File
+          filename = File.basename(file.path)
+        else
+          filename = ""
+        end
+      end
+
+      if spoiler && !filename.starts_with?("SPOILER_")
+        filename = "SPOILER_" + filename
+      end
+
+      builder = HTTP::FormData::Builder.new(io)
+      builder.file("file", file, HTTP::FormData::FileMetadata.new(filename: filename))
+      if content || embed
+        json = encode_tuple(
+          content: content,
+          embed: embed,
+          message_reference: message_reference
+        )
+        builder.field("payload_json", json)
+      end
+      builder.finish
+
+      response = request(
+        :channels_cid_messages,
+        channel_id,
+        "POST",
+        "/channels/#{channel_id}/messages",
+        HTTP::Headers{"Content-Type" => builder.content_type},
+        io.to_s
+      )
+
+      Message.from_json(response.body)
     end
   end
-
-  if spoiler && !filename.starts_with?("SPOILER_")
-    filename = "SPOILER_" + filename
-  end
-
-  builder = HTTP::FormData::Builder.new(io)
-  builder.file("file", file, HTTP::FormData::FileMetadata.new(filename: filename))
-  if content || embed
-    json = encode_tuple(
-      content: content,
-      embed: embed,
-      message_reference: message_reference
-    )
-    builder.field("payload_json", json)
-  end
-  builder.finish
-
-  response = request(
-    :channels_cid_messages,
-    channel_id,
-    "POST",
-    "/channels/#{channel_id}/messages",
-    HTTP::Headers{"Content-Type" => builder.content_type},
-    io.to_s
-  )
-
-  Message.from_json(response.body)
 end
-end
-end
-
 
 # A data structure wrapping an Array that doesn't keep more than @capacity entries
 class LimitedQueue(T)

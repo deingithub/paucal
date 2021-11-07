@@ -7,6 +7,12 @@ ALTER TABLE systems ADD COLUMN
 ALTER TABLE systems ADD COLUMN
   autoproxy_member TEXT REFERENCES members(pk_member_id);
 
+ALTER TABLE systems ADD COLUMN
+  autoproxy_latch BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE systems ADD COLUMN
+  latch TEXT;
+
 ALTER TABLE members ADD COLUMN
   local_tags TEXT;
 

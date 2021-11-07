@@ -21,13 +21,15 @@ class MemberBot
     @log.info { "Member bot #{@bot_id} shutting down" }
   end
 
-  def post(message : Discord::Message, pt : PKProxyTag)
+  def post(message : Discord::Message, pt : PKProxyTag?)
     proxied = nil
 
     reference = message.referenced_message.not_nil!.message_reference if message.referenced_message
 
     content = message.content
-    content = content.lchop(pt.prefix || "").rchop(pt.suffix || "") unless @db_data.data.keep_proxy
+    if pt && !@db_data.data.keep_proxy
+      content = content.lchop(pt.prefix || "").rchop(pt.suffix || "")
+    end
 
     proxied = @client.create_message(message.channel_id, content, message_reference: reference) if message.attachments.empty?
 

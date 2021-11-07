@@ -23,6 +23,8 @@ class PKSystem
   property current_fronter_pk_id : String?
   property autoproxy_enable : Bool
   property autoproxy_member : String?
+  property autoproxy_latch : Bool
+  property latch : String?
 end
 
 # A member bot's login data.

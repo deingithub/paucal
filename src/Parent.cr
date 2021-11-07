@@ -27,7 +27,7 @@ class ParentBot
 
   def commands(msg)
     begin
-      {% for command in %w(help whoarewe sync register edit ed delete nick del signup front autoproxy ap disable enable tags) %}
+      {% for command in %w(help whoarewe sync register edit ed delete nick del signup front autoproxy ap disable enable tags switch) %}
       if msg.content.starts_with?(";;#{{{command}}}")
         Log.info{"Executing #{{{command}}} (\"#{msg.content}\") for #{msg.author.id}"}
         {{command.id}}(msg)
@@ -50,21 +50,43 @@ class ParentBot
   end
 
   def proxy(msg)
-    Members.select { |mb| mb.db_data.system_discord_id == msg.author.id }.each do |mb|
-      next if mb.db_data.disabled
+    pk_system = get_system?(msg.author.id) || return
+
+    mb = Members.find { |bot|
+      pk_data = bot.db_data.data
+      tags = bot.db_data.local_tags || pk_data.proxy_tags
+
+      bot.db_data.system_discord_id == msg.author.id &&
+        !bot.db_data.disabled &&
+        tags.any? { |pt| pt.matches?(msg.content) }
+    }
+
+    if !mb && pk_system.autoproxy_enable && pk_system.autoproxy_member
+      mb = Members.find { |bot| bot.db_data.pk_member_id == pk_system.autoproxy_member }
+    elsif !mb && pk_system.autoproxy_enable && pk_system.current_fronter_pk_id
+      mb = Members.find { |bot| bot.db_data.pk_member_id == pk_system.current_fronter_pk_id }
+    elsif !mb && pk_system.autoproxy_latch && pk_system
+      mb = Members.find { |bot| bot.db_data.pk_member_id == pk_system.latch }
+    end
+
+    if mb
       pk_data = mb.db_data.data
       tags = mb.db_data.local_tags || pk_data.proxy_tags
-      proxy_tag = tags.find { |pt| pt.matches?(msg.content) } || next
+      proxy_tag = tags.find { |pt| pt.matches?(msg.content) }
 
       mb.post(msg, proxy_tag)
       @recently_proxied << msg
       @client.delete_message(msg.channel_id, msg.id)
+      if pk_system.autoproxy_latch
+        pk_system.latch = mb.db_data.pk_member_id
+        Database.exec("update systems set latch = ? where pk_system_id = ?", mb.db_data.pk_member_id, pk_system.pk_system_id)
+      end
     end
   end
 
   def pings(msg)
     return if msg.author.id == @client.client_id
-    return if Members.any? {|mb| mb.bot_id == msg.author.id }
+    return if Members.any? { |mb| mb.bot_id == msg.author.id }
 
     accumulated_pings = [] of String
     msg.mentions.each do |user|
@@ -101,7 +123,7 @@ class ParentBot
       `;;sync` Synchronize the data of Paucal-registered members with the PluralKit API.
       `;;register <pk member id>` Register `<pk member id>` with Paucal to make them proxyable with the bot.
       `;;whoarewe` Show which members are already registered with Paucal.
-      `;;autoproxy <mode/@member>`, `;;ap` Set auto-proxying to `front`, `off` or a mentioned system member.
+      `;;autoproxy <mode/@member>`, `;;ap` Set auto-proxying to `front`, `off`, `latch` or a mentioned system member.
       `;;switch <@member>` Switch the current fronter to the mentioned member. This has little effect until you set `;;ap` to `front`.
 
       *Member Commands*
@@ -130,7 +152,8 @@ class ParentBot
         <<-TEXT
         Hi! Thanks for your interest in Paucal. To sign up, you'll need your **PluralKit token**. You can find out what it is using `pk;token`.
         It should be a long string of characters that allows Paucal access to your profile data even if it's set to private.
-        Paucal will only ever perform reads on your data, and only if you explicitly request them.
+        Paucal will only ever perform reads on your system data, and only if you explicitly request them.
+        However, If you use ;;switch with Paucal, it will also update your PluralKit switch history with the new fronter.
         If you want to, you can reset your token after you have registered all members you want to, using `pk;token refresh`.
 
         *Once you've found your token, come back to* ***this DM channel*** *and type* `;;signup <Token>`.
@@ -421,6 +444,99 @@ class ParentBot
   end
 
   def autoproxy(msg)
+    case msg.content.lchop(";;ap ").lchop(";;autoproxy ")
+    when "off"
+      Database.exec(
+        "update systems set autoproxy_member = null, autoproxy_enable = false, autoproxy_latch = false, latch = null where discord_id = ?",
+        msg.author.id.to_i64
+      )
+      @client.create_message(
+        msg.channel_id,
+        "Disabled autoproxy."
+      )
+    when "front"
+      Database.exec(
+        "update systems set autoproxy_member = null, autoproxy_enable = true, autoproxy_latch = false, latch = null where discord_id = ?",
+        msg.author.id.to_i64
+      )
+
+      message = "Autoproxy set to current fronter"
+
+      current_system = get_system(msg.author.id)
+      if fronter = current_system.current_fronter_pk_id
+        member = get_members(current_system).find { |m| m.pk_member_id == fronter }.not_nil!
+        message += " (<@#{get_bot(member).bot_id}>)."
+      else
+        message += ". Set the current fronter with `;;switch <@member>`."
+      end
+
+      @client.create_message(
+        msg.channel_id,
+        message
+      )
+    when "latch"
+      Database.exec(
+        "update systems set autoproxy_member = null, autoproxy_enable = false, autoproxy_latch = true, latch = null where discord_id = ?",
+        msg.author.id.to_i64
+      )
+
+      @client.create_message(
+        msg.channel_id,
+        "Autoproxy set to latch."
+      )
+    else
+      bot = Members.find { |mb|
+        mb.db_data.system_discord_id == msg.author.id && msg.mentions.any? { |u| u.id == mb.bot_id }
+      } || anticipate("I don't know that member.")
+
+      Database.exec(
+        "update systems set autoproxy_member = ?, autoproxy_enable = true, autoproxy_latch = false, latch = null where discord_id = ?",
+        bot.db_data.pk_member_id, msg.author.id.to_i64
+      )
+      @client.create_message(msg.channel_id, "Set autoproxy to <@#{bot.bot_id}>.")
+    end
+  end
+
+  def switch(msg)
+    pk_system = get_system?(msg.author.id) || anticipate(
+      "You're not signed up with Paucal yet. Please type `;;signup` to do that."
+    )
+
+    bot = Members.find { |mb|
+      mb.db_data.system_discord_id == msg.author.id &&
+        msg.mentions.any? { |u| u.id == mb.bot_id }
+    }
+
+    if bot
+      Database.exec(
+        "update systems set current_fronter_pk_id = ? where discord_id = ?",
+        bot.db_data.pk_member_id, msg.author.id.to_i64
+      )
+
+      HTTP::Client.post(
+        "https://api.pluralkit.me/v1/s/switches",
+        headers: HTTP::Headers{
+          "Authorization" => pk_system.pk_token,
+          "Content-Type"  => "application/json",
+        },
+        body: {"members": [bot.db_data.pk_member_id]}.to_json
+      )
+      @client.create_message(msg.channel_id, "Switched to <@#{bot.bot_id}>.")
+    else
+      Database.exec(
+        "update systems set current_fronter_pk_id = null where discord_id = ?",
+        msg.author.id.to_i64
+      )
+      HTTP::Client.post(
+        "https://api.pluralkit.me/v1/s/switches",
+        headers: HTTP::Headers{
+          "Authorization" => pk_system.pk_token,
+          "Content-Type"  => "application/json",
+        },
+        body: {"members": [] of String}.to_json
+      )
+      @client.create_message(msg.channel_id, "Switched out.")
+    end
   end
 
   def ap(msg)
