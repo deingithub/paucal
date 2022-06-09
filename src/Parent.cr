@@ -163,7 +163,7 @@ class ParentBot
       token = msg.content.lchop(";;signup").strip
 
       system_response = HTTP::Client.get(
-        "https://api.pluralkit.me/v1/s",
+        "https://api.pluralkit.me/v2/systems/@me",
         headers: HTTP::Headers{
           "Authorization" => token,
         }
@@ -194,7 +194,7 @@ class ParentBot
     Database.transaction do |trans|
       get_members(pk_system).each do |member|
         http_data = HTTP::Client.get(
-          "https://api.pluralkit.me/v1/m/#{member.pk_member_id}",
+          "https://api.pluralkit.me/v2/systems/@me/members/#{member.pk_member_id}",
           headers: HTTP::Headers{
             "Authorization" => pk_system.pk_token,
           }
@@ -233,7 +233,7 @@ class ParentBot
 
     pk_data = Array(PKMemberData).from_json(
       HTTP::Client.get(
-        "https://api.pluralkit.me/v1/s/#{pk_system.pk_system_id}/members",
+        "https://api.pluralkit.me/v2/systems/@me/members",
         headers: HTTP::Headers{
           "Authorization" => pk_system.pk_token,
         }
@@ -514,7 +514,7 @@ class ParentBot
       )
 
       HTTP::Client.post(
-        "https://api.pluralkit.me/v1/s/switches",
+        "https://api.pluralkit.me/v2/systems/@me/switches",
         headers: HTTP::Headers{
           "Authorization" => pk_system.pk_token,
           "Content-Type"  => "application/json",
@@ -528,7 +528,7 @@ class ParentBot
         msg.author.id.to_i64
       )
       HTTP::Client.post(
-        "https://api.pluralkit.me/v1/s/switches",
+        "https://api.pluralkit.me/v2/systems/@me/switches",
         headers: HTTP::Headers{
           "Authorization" => pk_system.pk_token,
           "Content-Type"  => "application/json",
