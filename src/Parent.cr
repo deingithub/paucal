@@ -156,7 +156,7 @@ class ParentBot
         However, If you use ;;switch with Paucal, it will also update your PluralKit switch history with the new fronter.
         If you want to, you can reset your token after you have registered all members you want to, using `pk;token refresh`.
 
-        *Once you've found your token, come back to* ***this DM channel*** *and type* `;;signup <Token>`.
+        *Once you've found your token, come back to* ***this DM channel*** *and type* `;;signup <token>`.
         TEXT
       )
     else
@@ -169,11 +169,11 @@ class ParentBot
         }
       )
       anticipate("Your token doesn't seem to be valid.") if system_response.status_code == 401
-      pk_system = Hash(String, String?).from_json(system_response.body)
+      pk_system = Hash(String, JSON::Any).from_json(system_response.body)
 
       Database.exec(
         "insert into systems(discord_id, pk_system_id, pk_token) values(?,?,?)",
-        msg.author.id.to_i64, pk_system["id"], token
+        msg.author.id.to_i64, pk_system["id"].to_s, token
       )
 
       @client.create_message(
