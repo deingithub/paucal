@@ -194,7 +194,7 @@ class ParentBot
     Database.transaction do |trans|
       get_members(pk_system).each do |member|
         http_data = HTTP::Client.get(
-          "https://api.pluralkit.me/v2/systems/@me/members/#{member.pk_member_id}",
+          "https://api.pluralkit.me/v2/members/#{member.pk_member_id}",
           headers: HTTP::Headers{
             "Authorization" => pk_system.pk_token,
           }
